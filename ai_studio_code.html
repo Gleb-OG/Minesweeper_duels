@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Minesweeper Duels</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        -webkit-tap-highlight-color: transparent;
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0"
+  }
+}
+</script>
+</head>
+<body class="bg-gray-900 text-white antialiased">
+<div id="root"></div>
+
+<script type="module">
+import React, { useState, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom/client';
+
+// --- Игровая логика из utils/gameLogic.ts ---
+const createEmptyBoard = (rows, cols) => {
+    return Array.from({ length: rows }, () => 
+        Array.from({ length: cols }, () => ({
+            isMine: false,
+            isRevealed: false,
+            isFlagged: false,
+            adjacentMines: 0,
+            revealedBy: null,
+        }))
+    );
+};
+
+const plantMines = (board, rows, cols, mineCount, firstClickRow, firstClickCol) => {
+    let minesPlaced = 0;
+    const newBoard = JSON.parse(JSON.stringify(board));
+
+    while (minesPlaced < mineCount) {
+        const row = Math.floor(Math.random() * rows);
+        const col = Math.floor(Math.random() * cols);
+
+        const isFirstClickZone = Math.abs(row - firstClickRow) <= 1 && Math.abs(col - firstClickCol) <= 1;
+
+        if (!newBoard[row][col].isMine && !isFirstClickZone) {
+            newBoard[row][col].isMine = true;
+            minesPlaced++;
+        }
+    }
+    return newBoard;
+};
+
+const calculateAdjacentMines = (board, rows, cols) => {
+    const newBoard = JSON.parse(JSON.stringify(board));
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            if (newBoard[row][col].isMine) continue;
+            let mineCount = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < rows && newCol >= 0 && newCol < cols && newBoard[newRow][newCol].isMine) {
+                        mineCount++;
+                    }
+                }
+            }
+            newBoard[row][col].adjacentMines = mineCount;
+        }
+    }
+    return newBoard;
+};
+
+const revealCells = (board, row, col, rows, cols) => {
+    const newBoard = JSON.parse(JSON.stringify(board));
+    let revealedCount = 0;
+
+    const reveal = (r, c) => {
+        if (r < 0 || r >= rows || c < 0 || c >= cols || newBoard[r][c].isRevealed || newBoard[r][c].isFlagged) {
+            return;
+        }
+
+        newBoard[r][c].isRevealed = true;
+        revealedCount++;
+
+        if (newBoard[r][c].adjacentMines === 0) {
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    reveal(r + i, c + j);
+                }
+            }
+        }
+    };
+
+    reveal(row, col);
+    return { newBoard, revealedCount };
+};
+
+// --- Иконки ---
+const FlagIcon = () => (
+    React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", className: "h-full w-full p-1", viewBox: "0 0 24 24", fill: "currentColor", color: "#f472b6" },
+        React.createElement('path', { d: "M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z" })
+    )
+);
+
+const MineIcon = () => (
+    React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", className: "h-full w-full p-1", viewBox: "0 0 24 24", fill: "currentColor", color: "#ef4444" },
+        React.createElement('path', { d: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-2h2v2zm0-4h-2V7h2v6zm4 4h-2v-2h2v2zm0-4h-2V7h2v6z" })
+    )
+);
+
+// --- Компоненты ---
+const Cell = React.memo(({ cell, onClick, onContextMenu }) => {
+    const getCellContent = () => {
+        if (cell.isFlagged) {
+            return React.createElement(FlagIcon);
+        }
+        if (cell.isRevealed) {
+            if (cell.isMine) {
+                return React.createElement(MineIcon);
+            }
+            if (cell.adjacentMines > 0) {
+                return cell.adjacentMines;
+            }
+        }
+        return null;
+    };
+
+    const getNumberColor = (num) => {
+        switch (num) {
+            case 1: return 'text-cyan-400';
+            case 2: return 'text-green-400';
+            case 3: return 'text-red-500';
+            case 4: return 'text-blue-400';
+            case 5: return 'text-yellow-500';
+            case 6: return 'text-purple-400';
+            case 7: return 'text-pink-500';
+            case 8: return 'text-orange-500';
+            default: return 'text-gray-400';
+        }
+    };
+
+    const revealedByClass = cell.revealedBy === 1 ? 'bg-cyan-900/50' : cell.revealedBy === 2 ? 'bg-pink-900/50' : 'bg-gray-700';
+    const baseClasses = "w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 flex items-center justify-center font-bold text-base sm:text-lg md:text-xl select-none transition-colors duration-150";
+
+    if (cell.isRevealed) {
+        return React.createElement('div', { className: `${baseClasses} ${revealedByClass} ${getNumberColor(cell.adjacentMines)}` }, getCellContent());
+    }
+
+    return React.createElement('div', { 
+        className: `${baseClasses} bg-gray-600 hover:bg-gray-500 cursor-pointer rounded-sm`,
+        onClick: onClick,
+        onContextMenu: onContextMenu
+    }, getCellContent());
+});
+
+const StatusBar = ({ currentPlayer, scores, minesLeft, onExit, roomId, revealedByPlayer }) => {
+    const player1Classes = `flex-1 text-center p-3 rounded-l-lg transition-all duration-300 ${currentPlayer === 1 ? 'bg-cyan-500 text-gray-900 scale-105 shadow-lg' : 'bg-gray-700'}`;
+    const player2Classes = `flex-1 text-center p-3 rounded-r-lg transition-all duration-300 ${currentPlayer === 2 ? 'bg-pink-500 text-gray-900 scale-105 shadow-lg' : 'bg-gray-700'}`;
+    
+    return React.createElement('div', { className: "w-full max-w-3xl mb-4 p-2 bg-gray-800 rounded-xl shadow-lg" },
+        React.createElement('div', { className: "flex justify-between items-center mb-2 px-2" },
+            React.createElement('div', { className: "text-left" },
+                React.createElement('span', { className: "text-sm text-gray-400" }, "Room ID: "),
+                React.createElement('span', { className: "font-bold text-white tracking-wider" }, roomId)
+            ),
+            React.createElement('button', { onClick: onExit, className: "text-sm bg-red-600 hover:bg-red-500 text-white font-bold py-1 px-3 rounded-md transition-colors" }, "Exit")
+        ),
+        React.createElement('div', { className: "flex justify-center items-center" },
+            React.createElement('div', { className: player1Classes },
+                React.createElement('div', { className: "font-bold text-lg" }, "Player 1"),
+                React.createElement('div', { className: "text-2xl font-black" }, scores[1]),
+                React.createElement('div', { className: `text-xs ${currentPlayer === 1 ? 'text-gray-800' : 'text-gray-300'}` }, "Area: ", revealedByPlayer[1])
+            ),
+            React.createElement('div', { className: "flex flex-col items-center justify-center p-3 bg-gray-900 text-white w-28 mx-1 rounded-md shadow-inner" },
+                React.createElement('span', { className: "text-2xl font-bold" }, minesLeft),
+                React.createElement('span', { className: "text-xs uppercase text-gray-400" }, "Mines")
+            ),
+            React.createElement('div', { className: player2Classes },
+                React.createElement('div', { className: "font-bold text-lg" }, "Player 2"),
+                React.createElement('div', { className: "text-2xl font-black" }, scores[2]),
+                React.createElement('div', { className: `text-xs ${currentPlayer === 2 ? 'text-gray-800' : 'text-gray-300'}` }, "Area: ", revealedByPlayer[2])
+            )
+        )
+    );
+};
+
+const GameOverModal = ({ winner, scores, onPlayAgain, revealedByPlayer }) => {
+    const getWinnerText = () => winner === null ? "It's a Draw!" : `Player ${winner} Wins!`;
+    const winnerClass = winner === 1 ? 'text-cyan-400' : winner === 2 ? 'text-pink-400' : 'text-white';
+
+    return React.createElement('div', { className: "fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" },
+        React.createElement('div', { className: "bg-gray-800 rounded-xl shadow-2xl p-8 text-center border-2 border-gray-700 max-w-sm w-full mx-4" },
+            React.createElement('h2', { className: "text-3xl font-bold mb-4" }, "Game Over"),
+            React.createElement('h3', { className: `text-4xl font-extrabold mb-6 ${winnerClass}` }, getWinnerText()),
+            React.createElement('div', { className: "flex justify-around mb-8 text-lg" },
+                React.createElement('div', { className: "p-4 rounded-lg bg-gray-700 w-32 flex flex-col items-center" },
+                    React.createElement('p', { className: "font-bold text-cyan-400" }, "Player 1"),
+                    React.createElement('p', { className: "text-2xl font-black" }, scores[1]),
+                    React.createElement('p', { className: "text-sm text-gray-300 mt-1" }, "Area: ", revealedByPlayer[1])
+                ),
+                React.createElement('div', { className: "p-4 rounded-lg bg-gray-700 w-32 flex flex-col items-center" },
+                    React.createElement('p', { className: "font-bold text-pink-400" }, "Player 2"),
+                    React.createElement('p', { className: "text-2xl font-black" }, scores[2]),
+                    React.createElement('p', { className: "text-sm text-gray-300 mt-1" }, "Area: ", revealedByPlayer[2])
+                )
+            ),
+            React.createElement('button', { onClick: onPlayAgain, className: "w-full bg-green-500 hover:bg-green-400 text-gray-900 font-bold py-3 px-4 rounded-lg text-lg transition duration-300 transform hover:scale-105" }, "Play Again")
+        )
+    );
+};
+
+const GameScreen = ({ onExit, roomId }) => {
+    const ROWS = 12, COLS = 12, MINES = 15;
+    const [board, setBoard] = useState(() => createEmptyBoard(ROWS, COLS));
+    const [isFirstClick, setIsFirstClick] = useState(true);
+    const [currentPlayer, setCurrentPlayer] = useState(1);
+    const [scores, setScores] = useState({ 1: 0, 2: 0 });
+    const [gameState, setGameState] = useState('playing');
+    const [minesFound, setMinesFound] = useState(0);
+    const [winner, setWinner] = useState(null);
+    const [revealedCellsCount, setRevealedCellsCount] = useState(0);
+    const [revealedByPlayer, setRevealedByPlayer] = useState({ 1: 0, 2: 0 });
+
+    const switchPlayer = () => setCurrentPlayer(prev => (prev === 1 ? 2 : 1));
+
+    const handleCellClick = useCallback((row, col) => {
+        if (gameState === 'gameOver') return;
+
+        let currentBoard = board;
+        if (isFirstClick) {
+            currentBoard = plantMines(board, ROWS, COLS, MINES, row, col);
+            currentBoard = calculateAdjacentMines(currentBoard, ROWS, COLS);
+            setIsFirstClick(false);
+        }
+        
+        const cell = currentBoard[row][col];
+        if (cell.isRevealed || cell.isFlagged) return;
+
+        if (cell.isMine) {
+            const newBoard = JSON.parse(JSON.stringify(currentBoard));
+            newBoard[row][col].isRevealed = true;
+            newBoard[row][col].revealedBy = currentPlayer;
+            setBoard(newBoard);
+            setScores(prev => ({ ...prev, [currentPlayer]: prev[currentPlayer] - 10 }));
+            setMinesFound(prev => prev + 1);
+            switchPlayer();
+        } else {
+            const { newBoard } = revealCells(currentBoard, row, col, ROWS, COLS);
+            let points = 0;
+            let newlyRevealedByPlayer = 0;
+            for(let r=0; r < ROWS; r++){
+                for(let c=0; c < COLS; c++){
+                    if(newBoard[r][c].isRevealed && !currentBoard[r][c].isRevealed){
+                        newBoard[r][c].revealedBy = currentPlayer;
+                        points += newBoard[r][c].adjacentMines > 0 ? newBoard[r][c].adjacentMines : 1;
+                        newlyRevealedByPlayer++;
+                    }
+                }
+            }
+            setBoard(newBoard);
+            setScores(prev => ({ ...prev, [currentPlayer]: prev[currentPlayer] + points }));
+            setRevealedCellsCount(prev => prev + newlyRevealedByPlayer);
+            setRevealedByPlayer(prev => ({ ...prev, [currentPlayer]: prev[currentPlayer] + newlyRevealedByPlayer }));
+        }
+    }, [board, currentPlayer, gameState, isFirstClick]);
+
+    const handleContextMenu = useCallback((e, row, col) => {
+        e.preventDefault();
+        if (gameState === 'gameOver' || board[row][col].isRevealed) return;
+        const newBoard = [...board];
+        newBoard[row][col].isFlagged = !newBoard[row][col].isFlagged;
+        setBoard(newBoard);
+    }, [board, gameState]);
+    
+    useEffect(() => {
+        const nonMineCells = ROWS * COLS - MINES;
+        if (minesFound === MINES || revealedCellsCount >= nonMineCells) {
+            setGameState('gameOver');
+            if (scores[1] > scores[2]) setWinner(1);
+            else if (scores[2] > scores[1]) setWinner(2);
+            else {
+                if (revealedByPlayer[1] > revealedByPlayer[2]) setWinner(1);
+                else if (revealedByPlayer[2] > revealedByPlayer[1]) setWinner(2);
+                else setWinner(null);
+            }
+        }
+    }, [minesFound, scores, revealedCellsCount, revealedByPlayer]);
+
+    return React.createElement('div', { className: "flex flex-col items-center w-full max-w-7xl mx-auto" },
+        React.createElement(StatusBar, { currentPlayer, scores, minesLeft: MINES - minesFound, onExit, roomId, revealedByPlayer }),
+        React.createElement('div', { 
+            className: "bg-gray-800 p-2 sm:p-4 rounded-lg shadow-xl",
+            style: { display: 'grid', gridTemplateColumns: `repeat(${COLS}, 1fr)`, gap: '2px' }
+        },
+            board.map((row, rowIndex) => 
+                row.map((cell, colIndex) => React.createElement(Cell, { 
+                    key: `${rowIndex}-${colIndex}`, 
+                    cell,
+                    onClick: () => handleCellClick(rowIndex, colIndex),
+                    onContextMenu: (e) => handleContextMenu(e, rowIndex, colIndex)
+                }))
+            )
+        ),
+        gameState === 'gameOver' && React.createElement(GameOverModal, { winner, scores, onPlayAgain: onExit, revealedByPlayer })
+    );
+};
+
+const HomeScreen = ({ onCreateRoom, onJoinRoom }) => {
+    return React.createElement('div', { className: "w-full max-w-md mx-auto bg-gray-800 rounded-lg shadow-lg p-8 flex flex-col items-center text-center" },
+        React.createElement('h1', { className: "text-4xl md:text-5xl font-bold text-cyan-400 mb-2 tracking-wider" }, "Minesweeper"),
+        React.createElement('h2', { className: "text-3xl md:text-4xl font-bold text-pink-500 mb-8 tracking-wider" }, "Duels"),
+        React.createElement('div', { className: "flex flex-col space-y-4 w-full" },
+            React.createElement('button', { onClick: onCreateRoom, className: "w-full bg-cyan-500 hover:bg-cyan-400 text-gray-900 font-bold py-3 px-4 rounded-lg text-lg transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-cyan-300" }, "Create Game"),
+            React.createElement('button', { onClick: onJoinRoom, className: "w-full bg-pink-500 hover:bg-pink-400 text-gray-900 font-bold py-3 px-4 rounded-lg text-lg transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-pink-300" }, "Join Game")
+        ),
+        React.createElement('p', { className: "mt-8 text-sm text-gray-400" }, "Challenge a friend in a turn-based minesweeper battle!")
+    );
+};
+
+const LobbyScreen = ({ roomId, onStartGame, onJoinRoom }) => {
+    const [joinId, setJoinId] = useState('');
+    const [isJoining, setIsJoining] = useState(!roomId);
+
+    const handleCopyToClipboard = () => {
+        navigator.clipboard.writeText(roomId);
+        alert('Room ID copied to clipboard!');
+    };
+
+    const handleJoinSubmit = (e) => {
+        e.preventDefault();
+        if (joinId.trim()) onJoinRoom(joinId.trim().toUpperCase());
+    };
+
+    return React.createElement('div', { className: "w-full max-w-md mx-auto bg-gray-800 rounded-lg shadow-lg p-8 flex flex-col items-center text-center" },
+        isJoining ? React.createElement(React.Fragment, null,
+            React.createElement('h2', { className: "text-2xl font-bold text-pink-500 mb-6" }, "Join a Game Room"),
+            React.createElement('form', { onSubmit: handleJoinSubmit, className: "w-full flex flex-col space-y-4" },
+                React.createElement('input', { type: "text", value: joinId, onChange: (e) => setJoinId(e.target.value), placeholder: "Enter Room ID", className: "w-full bg-gray-700 text-white placeholder-gray-400 p-3 rounded-lg text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-pink-500", maxLength: 6 }),
+                React.createElement('button', { type: "submit", className: "w-full bg-pink-500 hover:bg-pink-400 text-gray-900 font-bold py-3 px-4 rounded-lg text-lg transition duration-300 transform hover:scale-105" }, "Join")
+            ),
+            roomId && React.createElement('button', { onClick: () => setIsJoining(false), className: "mt-4 text-cyan-400 hover:text-cyan-300" }, "Back to your room")
+        ) : React.createElement(React.Fragment, null,
+            React.createElement('h2', { className: "text-2xl font-bold text-cyan-400 mb-4" }, "Your Game Room"),
+            React.createElement('p', { className: "text-gray-400 mb-4" }, "Share this ID with your friend:"),
+            React.createElement('div', { className: "bg-gray-900 rounded-lg p-4 mb-6 w-full flex justify-center items-center cursor-pointer", onClick: handleCopyToClipboard },
+                React.createElement('span', { className: "text-4xl font-bold text-white tracking-widest" }, roomId)
+            ),
+            React.createElement('div', { className: "flex flex-col space-y-4 w-full" },
+                React.createElement('button', { onClick: onStartGame, className: "w-full bg-cyan-500 hover:bg-cyan-400 text-gray-900 font-bold py-3 px-4 rounded-lg text-lg transition duration-300 transform hover:scale-105" }, "Start Game"),
+                React.createElement('button', { onClick: () => setIsJoining(true), className: "text-pink-400 hover:text-pink-300 text-sm" }, "Want to join another room?")
+            )
+        )
+    );
+};
+
+const App = () => {
+    const [currentScreen, setCurrentScreen] = useState('home');
+    const [roomId, setRoomId] = useState('');
+    const [gameKey, setGameKey] = useState(0);
+
+    const handleCreateRoom = useCallback(() => {
+        const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+        setRoomId(newRoomId);
+        setCurrentScreen('lobby');
+    }, []);
+
+    const handleJoinRoom = useCallback((id) => {
+        setRoomId(id);
+        setCurrentScreen('game');
+    }, []);
+    
+    const handleStartGame = useCallback(() => {
+        setCurrentScreen('game');
+    }, []);
+
+    const handleExitGame = useCallback(() => {
+        setRoomId('');
+        setCurrentScreen('home');
+        setGameKey(prev => prev + 1);
+    }, []);
+
+    const renderScreen = () => {
+        switch (currentScreen) {
+            case 'home':
+                return React.createElement(HomeScreen, { onCreateRoom: handleCreateRoom, onJoinRoom: () => setCurrentScreen('lobby') });
+            case 'lobby':
+                return React.createElement(LobbyScreen, { roomId, onStartGame: handleStartGame, onJoinRoom: handleJoinRoom });
+            case 'game':
+                return React.createElement(GameScreen, { key: gameKey, onExit: handleExitGame, roomId });
+            default:
+                return React.createElement(HomeScreen, { onCreateRoom: handleCreateRoom, onJoinRoom: () => setCurrentScreen('lobby') });
+        }
+    };
+
+    return React.createElement('div', { className: "min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center justify-center p-4 font-mono" },
+        renderScreen()
+    );
+};
+
+// --- Точка входа ---
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  React.createElement(React.StrictMode, null, React.createElement(App))
+);
+
+</script>
+</body>
+</html>
