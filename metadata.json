@@ -1,0 +1,5 @@
+{
+  "name": "Minesweeper Duels",
+  "description": "A two-player online minesweeper game. Players can create or join game rooms to compete against each other. The goal is to score more points than the opponent by revealing safe cells, while avoiding mines which deduct points.",
+  "requestFramePermissions": []
+}
