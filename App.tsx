@@ -1,8 +1,8 @@
 
 import React, { useState, useCallback } from 'react';
-import HomeScreen from './components/HomeScreen';
-import LobbyScreen from './components/LobbyScreen';
-import GameScreen from './components/GameScreen';
+import HomeScreen from './components/HomeScreen.tsx';
+import LobbyScreen from './components/LobbyScreen.tsx';
+import GameScreen from './components/GameScreen.tsx';
 
 type GameScreenType = 'home' | 'lobby' | 'game';
 
