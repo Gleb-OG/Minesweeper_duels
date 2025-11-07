@@ -13,6 +13,8 @@ const App: React.FC = () => {
 
     const handleCreateRoom = useCallback(() => {
         const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+        // Clear any old state for this ID, just in case
+        localStorage.removeItem(`minesweeper_${newRoomId}`);
         setRoomId(newRoomId);
         setCurrentScreen('lobby');
     }, []);
