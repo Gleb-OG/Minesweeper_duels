@@ -1,5 +1,5 @@
 
-import { CellState } from '../types.ts';
+import { CellState, Player } from '../types.ts';
 
 export const createEmptyBoard = (rows: number, cols: number): CellState[][] => {
     return Array.from({ length: rows }, () => 
@@ -54,7 +54,7 @@ export const calculateAdjacentMines = (board: CellState[][], rows: number, cols:
     return newBoard;
 };
 
-export const revealCells = (board: CellState[][], row: number, col: number, rows: number, cols: number): { newBoard: CellState[][], revealedCount: number } => {
+export const revealCells = (board: CellState[][], row: number, col: number, rows: number, cols: number, player: Player | null): { newBoard: CellState[][], revealedCount: number } => {
     const newBoard = JSON.parse(JSON.stringify(board));
     let revealedCount = 0;
 
@@ -64,6 +64,7 @@ export const revealCells = (board: CellState[][], row: number, col: number, rows
         }
 
         newBoard[r][c].isRevealed = true;
+        newBoard[r][c].revealedBy = player;
         revealedCount++;
 
         if (newBoard[r][c].adjacentMines === 0) {
